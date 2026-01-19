@@ -87,6 +87,7 @@ use std::os::raw::c_void;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use crate::dpi::LogicalSize;
 use crate::event_loop::{ActiveEventLoop, EventLoopBuilder};
 use crate::monitor::MonitorHandle;
 use crate::window::{Window, WindowAttributes};
@@ -110,6 +111,13 @@ pub trait WindowExtMacOS {
 
     /// Sets whether or not the window has shadow.
     fn set_has_shadow(&self, has_shadow: bool);
+
+    /// Set the offset for the window controls (traffic lights) in logical points.
+    ///
+    /// Positive values move right (x) and down (y) relative to the default position.
+    /// This applies an offset from the default position; it does not change the native
+    /// spacing between the buttons.
+    fn set_traffic_light_inset(&self, inset: LogicalSize<f64>);
 
     /// Group windows together by using the same tabbing identifier.
     ///
@@ -191,6 +199,11 @@ impl WindowExtMacOS for Window {
     #[inline]
     fn set_has_shadow(&self, has_shadow: bool) {
         self.window.maybe_queue_on_main(move |w| w.set_has_shadow(has_shadow))
+    }
+
+    #[inline]
+    fn set_traffic_light_inset(&self, inset: LogicalSize<f64>) {
+        self.window.maybe_wait_on_main(move |w| w.set_traffic_light_inset(inset))
     }
 
     #[inline]
@@ -290,6 +303,12 @@ pub trait WindowAttributesExtMacOS {
     fn with_titlebar_buttons_hidden(self, titlebar_buttons_hidden: bool) -> Self;
     /// Makes the window content appear behind the titlebar.
     fn with_fullsize_content_view(self, fullsize_content_view: bool) -> Self;
+    /// Sets the offset for the window controls (traffic lights) in logical points.
+    ///
+    /// Positive values move right (x) and down (y) relative to the default position.
+    /// This applies an offset from the default position; it does not change the native
+    /// spacing between the buttons.
+    fn with_traffic_light_inset(self, inset: LogicalSize<f64>) -> Self;
     fn with_disallow_hidpi(self, disallow_hidpi: bool) -> Self;
     fn with_has_shadow(self, has_shadow: bool) -> Self;
     /// Window accepts click-through mouse events.
@@ -340,6 +359,12 @@ impl WindowAttributesExtMacOS for WindowAttributes {
     #[inline]
     fn with_fullsize_content_view(mut self, fullsize_content_view: bool) -> Self {
         self.platform_specific.fullsize_content_view = fullsize_content_view;
+        self
+    }
+
+    #[inline]
+    fn with_traffic_light_inset(mut self, inset: LogicalSize<f64>) -> Self {
+        self.platform_specific.traffic_light_inset = Some(inset);
         self
     }
 

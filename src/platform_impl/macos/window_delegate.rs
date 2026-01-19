@@ -50,6 +50,7 @@ pub struct PlatformSpecificWindowAttributes {
     pub titlebar_hidden: bool,
     pub titlebar_buttons_hidden: bool,
     pub fullsize_content_view: bool,
+    pub traffic_light_inset: Option<LogicalSize<f64>>,
     pub disallow_hidpi: bool,
     pub has_shadow: bool,
     pub accepts_first_mouse: bool,
@@ -68,6 +69,7 @@ impl Default for PlatformSpecificWindowAttributes {
             titlebar_hidden: false,
             titlebar_buttons_hidden: false,
             fullsize_content_view: false,
+            traffic_light_inset: None,
             disallow_hidpi: false,
             has_shadow: true,
             accepts_first_mouse: true,
@@ -76,6 +78,14 @@ impl Default for PlatformSpecificWindowAttributes {
             borderless_game: false,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TrafficLightBase {
+    // Derived from `NSWindow::standardWindowButton` frames.
+    x: f64,
+    y: f64,
+    spacing: f64,
 }
 
 #[derive(Debug)]
@@ -99,6 +109,9 @@ pub(crate) struct State {
     decorations: Cell<bool>,
     resizable: Cell<bool>,
     maximized: Cell<bool>,
+
+    traffic_light_inset: Cell<Option<LogicalSize<f64>>>,
+    traffic_light_base: Cell<Option<TrafficLightBase>>,
 
     /// Presentation options saved before entering `set_simple_fullscreen`, and
     /// restored upon exiting it. Also used when transitioning from Borderless to
@@ -165,6 +178,7 @@ declare_class!(
             trace_scope!("windowDidResize:");
             // NOTE: WindowEvent::Resized is reported in frameDidChange.
             self.emit_move_event();
+            self.apply_traffic_light_inset_if_needed();
         }
 
         #[method(windowWillStartLiveResize:)]
@@ -296,6 +310,7 @@ declare_class!(
             if let Some(target_fullscreen) = self.ivars().target_fullscreen.take() {
                 self.set_fullscreen(target_fullscreen);
             }
+            self.apply_traffic_light_inset_if_needed();
         }
 
         /// Invoked when exited fullscreen
@@ -308,6 +323,7 @@ declare_class!(
             if let Some(target_fullscreen) = self.ivars().target_fullscreen.take() {
                 self.set_fullscreen(target_fullscreen);
             }
+            self.apply_traffic_light_inset_if_needed();
         }
 
         /// Invoked when fail to enter fullscreen
@@ -720,6 +736,8 @@ impl WindowDelegate {
             decorations: Cell::new(attrs.decorations),
             resizable: Cell::new(attrs.resizable),
             maximized: Cell::new(attrs.maximized),
+            traffic_light_inset: Cell::new(attrs.platform_specific.traffic_light_inset),
+            traffic_light_base: Cell::new(None),
             save_presentation_opts: Cell::new(None),
             initial_fullscreen: Cell::new(attrs.fullscreen.is_some()),
             fullscreen: RefCell::new(None),
@@ -739,6 +757,10 @@ impl WindowDelegate {
             });
         }
         window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+
+        if attrs.platform_specific.traffic_light_inset.is_some() {
+            delegate.apply_traffic_light_inset_if_needed();
+        }
 
         // Listen for theme change event.
         //
@@ -858,7 +880,19 @@ impl WindowDelegate {
     }
 
     pub fn set_title(&self, title: &str) {
-        self.window().setTitle(&NSString::from_str(title))
+        self.window().setTitle(&NSString::from_str(title));
+        self.apply_traffic_light_inset_if_needed();
+    }
+
+    fn set_traffic_light_inset_inner(&self, inset: LogicalSize<f64>) {
+        self.ivars().traffic_light_inset.set(Some(inset));
+        self.apply_traffic_light_inset_if_needed();
+    }
+
+    fn apply_traffic_light_inset_if_needed(&self) {
+        if let Some(inset) = self.ivars().traffic_light_inset.get() {
+            apply_traffic_light_inset(self.window(), inset, &self.ivars().traffic_light_base);
+        }
     }
 
     pub fn set_transparent(&self, transparent: bool) {
@@ -1800,6 +1834,11 @@ impl WindowExtMacOS for WindowDelegate {
     #[inline]
     fn set_has_shadow(&self, has_shadow: bool) {
         self.window().setHasShadow(has_shadow)
+    }
+
+    #[inline]
+    fn set_traffic_light_inset(&self, inset: LogicalSize<f64>) {
+        self.set_traffic_light_inset_inner(inset);
     }
 
     #[inline]
