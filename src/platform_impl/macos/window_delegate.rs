@@ -106,7 +106,8 @@ fn apply_traffic_light_inset(
         base_cache.set(None);
         return;
     };
-    if close.isHidden() || mini.isHidden() || zoom.isHidden() {
+    let any_hidden = unsafe { close.isHidden() || mini.isHidden() || zoom.isHidden() };
+    if any_hidden {
         base_cache.set(None);
         return;
     }
@@ -147,7 +148,7 @@ fn apply_traffic_light_inset(
         let mut rect = button.frame();
         rect.origin.x = base.x + inset.width + (index as f64 * base.spacing);
         rect.origin.y = target_y;
-        button.setFrameOrigin(rect.origin);
+        unsafe { button.setFrameOrigin(rect.origin) };
     }
 }
 
