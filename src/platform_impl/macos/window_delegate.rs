@@ -88,6 +88,69 @@ struct TrafficLightBase {
     spacing: f64,
 }
 
+fn apply_traffic_light_inset(
+    window: &WinitWindow,
+    inset: LogicalSize<f64>,
+    base_cache: &Cell<Option<TrafficLightBase>>,
+) {
+    // Resolve the standard buttons; if any are missing or hidden, clear the cache and bail.
+    let Some(close) = window.standardWindowButton(NSWindowButton::NSWindowCloseButton) else {
+        base_cache.set(None);
+        return;
+    };
+    let Some(mini) = window.standardWindowButton(NSWindowButton::NSWindowMiniaturizeButton) else {
+        base_cache.set(None);
+        return;
+    };
+    let Some(zoom) = window.standardWindowButton(NSWindowButton::NSWindowZoomButton) else {
+        base_cache.set(None);
+        return;
+    };
+    if close.isHidden() || mini.isHidden() || zoom.isHidden() {
+        base_cache.set(None);
+        return;
+    }
+
+    // Capture the current base position and spacing from AppKit.
+    let close_rect = close.frame();
+    let spacing = mini.frame().origin.x - close_rect.origin.x;
+    let current = TrafficLightBase {
+        x: close_rect.origin.x,
+        y: close_rect.origin.y,
+        spacing,
+    };
+
+    // If AppKit has reset the buttons, refresh the cached base before applying the inset.
+    let base = match base_cache.get() {
+        Some(base) => {
+            let expected_x = base.x + inset.width;
+            let expected_y = base.y - inset.height; // titlebar view is not flipped
+            let drift = (close_rect.origin.x - expected_x).abs() > 0.5
+                || (close_rect.origin.y - expected_y).abs() > 0.5
+                || (spacing - base.spacing).abs() > 0.5;
+            if drift {
+                base_cache.set(Some(current));
+                current
+            } else {
+                base
+            }
+        }
+        None => {
+            base_cache.set(Some(current));
+            current
+        }
+    };
+
+    // Apply the inset from the cached base position, preserving the native spacing.
+    let target_y = base.y - inset.height;
+    for (index, button) in [close, mini, zoom].into_iter().enumerate() {
+        let mut rect = button.frame();
+        rect.origin.x = base.x + inset.width + (index as f64 * base.spacing);
+        rect.origin.y = target_y;
+        button.setFrameOrigin(rect.origin);
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct State {
     /// Strong reference to the global application state.
