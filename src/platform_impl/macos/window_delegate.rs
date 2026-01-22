@@ -86,6 +86,8 @@ struct TrafficLightBase {
     x: f64,
     y: f64,
     spacing: f64,
+    // Captured from the titlebar container view that owns the buttons.
+    container_height: f64,
 }
 
 fn apply_traffic_light_inset(
@@ -112,6 +114,16 @@ fn apply_traffic_light_inset(
         return;
     }
 
+    // Resolve the container view so we can expand it when moving buttons downward.
+    let titlebar_container_view: Option<Retained<NSView>> = unsafe {
+        let superview: Option<Retained<NSView>> = msg_send_id![&*close, superview];
+        superview.and_then(|view| msg_send_id![&*view, superview])
+    };
+    let container_height = titlebar_container_view
+        .as_ref()
+        .map(|view| view.frame().size.height)
+        .unwrap_or(0.0);
+
     // Capture the current base position and spacing from AppKit.
     let close_rect = close.frame();
     let spacing = mini.frame().origin.x - close_rect.origin.x;
@@ -119,16 +131,33 @@ fn apply_traffic_light_inset(
         x: close_rect.origin.x,
         y: close_rect.origin.y,
         spacing,
+        container_height,
     };
 
-    // If AppKit has reset the buttons, refresh the cached base before applying the inset.
+    let use_container_offset = inset.height > 0.0 && titlebar_container_view.is_some();
+
+    // If AppKit has reset the buttons leading to drift, refresh the cached base.
     let base = match base_cache.get() {
         Some(base) => {
             let expected_x = base.x + inset.width;
-            let expected_y = base.y - inset.height; // titlebar view is not flipped
-            let drift = (close_rect.origin.x - expected_x).abs() > 0.5
+            let expected_y = if use_container_offset {
+                base.y
+            } else {
+                base.y - inset.height
+            };
+            let expected_height = if use_container_offset {
+                base.container_height + inset.height
+            } else {
+                base.container_height
+            };
+            let mut drift = (close_rect.origin.x - expected_x).abs() > 0.5
                 || (close_rect.origin.y - expected_y).abs() > 0.5
                 || (spacing - base.spacing).abs() > 0.5;
+            if titlebar_container_view.is_some()
+                && (container_height - expected_height).abs() > 0.5
+            {
+                drift = true;
+            }
             if drift {
                 base_cache.set(Some(current));
                 current
@@ -142,8 +171,26 @@ fn apply_traffic_light_inset(
         }
     };
 
+    if let Some(view) = &titlebar_container_view {
+        let target_height = if use_container_offset {
+            base.container_height + inset.height
+        } else {
+            base.container_height
+        };
+        let mut rect = view.frame();
+        if (rect.size.height - target_height).abs() > 0.5 {
+            rect.size.height = target_height;
+            rect.origin.y = window.frame().size.height - rect.size.height;
+            unsafe { view.setFrame(rect) };
+        }
+    }
+
     // Apply the inset from the cached base position, preserving the native spacing.
-    let target_y = base.y - inset.height;
+    let target_y = if use_container_offset {
+        base.y
+    } else {
+        base.y - inset.height
+    };
     for (index, button) in [close, mini, zoom].into_iter().enumerate() {
         let mut rect = button.frame();
         rect.origin.x = base.x + inset.width + (index as f64 * base.spacing);
